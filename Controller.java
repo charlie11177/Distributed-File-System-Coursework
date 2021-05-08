@@ -28,34 +28,26 @@ public class Controller {
             for (;;) {
                 try {
                     Socket client = controllerSS.accept();
-                    BufferedReader in = new BufferedReader(new InputStreamReader(client.getInputStream()));
-                    BufferedWriter out = new BufferedWriter(new OutputStreamWriter(client.getOutputStream()));
-                    
-                    String line;
-                    while((line = in.readLine()) != null){
+                    while(true){
+                        String line = receiveMessage(client);
                         String[] parsedLine = Parser.parse(line);
                         String command = parsedLine[0];
                         if(parsedLine.length != 1){
                             String[] commandargs = Arrays.copyOfRange(parsedLine, 1, parsedLine.length - 1);
                         }
-                        switch(command){
-                            case "STORE":
-                                System.out.println("Client would like to store! first argument ");
-                                out.write("Store command received");
-                                out.newLine();
-                                out.flush();
-                                break;
-                            case "LIST":
-                                out.write(file_list);
-                                out.newLine();
-                                out.flush();
-                            default:
-                                System.out.println("Received command: " + command);
-                                break;
+                        if(command.equals("STORE")){
+                            //System.out.println("Client would like to store! first argument ");
+                            //outToClient.write("Store command received");
+                            //outToClient.newLine();
+                            //outToClient.flush();
+                        }else if(command.equals("LIST")){
+                            sendMessage(client, "LIST " + file_list);
+                        }else{
+
                         }
                     }
                 } catch (Exception e) {
-                    System.out.println("error" + e);
+                    System.out.println("Dstore Disconnected");
                 }
             }
         } catch (Exception e) {
@@ -64,8 +56,21 @@ public class Controller {
 
     }
 
-    private static void log(String message){
-        String ts = new SimpleDateFormat("[dd/MM/yyyy HH:mm:ss]: ").format(new Date());
-        ControllerLogger.getInstance().log(ts + message);
+    public static void sendMessage(Socket socket, String message) throws IOException {
+        BufferedWriter out = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
+        out.write(message);
+        out.newLine();
+        out.flush();
+
+        ControllerLogger.getInstance().messageSent(socket, message);
+    }
+
+    public static String receiveMessage(Socket socket) throws IOException{
+        BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+        String message = in.readLine();
+        if(message != null){
+            ControllerLogger.getInstance().messageReceived(socket, message);
+        }
+        return message;
     }
 }
