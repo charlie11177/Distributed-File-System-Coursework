@@ -57,11 +57,8 @@ public class Controller {
     }
 
     public static void sendMessage(Socket socket, String message) throws IOException {
-        BufferedWriter out = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
-        out.write(message);
-        out.newLine();
-        out.flush();
-
+        PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
+        out.println(message);
         ControllerLogger.getInstance().messageSent(socket, message);
     }
 

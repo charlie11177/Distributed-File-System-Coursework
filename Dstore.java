@@ -32,19 +32,14 @@ public class Dstore {
                         String command = parsedLine[0];
                         if(command.equals("STORE")){
                             String filename = parsedLine[1];
-                            long filesize = Long.parseLong(parsedLine[2]); 
+                            int filesize = Integer.parseInt(parsedLine[2]); 
 
                             File file = new File(file_folder, filename);
                             OutputStream fileOutput = new FileOutputStream(file);
                             
                             sendMessage(client, "ACK");
-
-                            byte[] buffer = new byte[1024];
-                            int bytesRead;
                             InputStream clientIS = client.getInputStream();
-                            while((bytesRead = clientIS.read(buffer)) != -1){
-                                fileOutput.write(buffer, 0, bytesRead);
-                            }
+                            fileOutput.write(clientIS.readNBytes(filesize));
                             fileOutput.close();
 
                             sendMessage(controller, "STORE_ACK " + filename);
@@ -53,13 +48,11 @@ public class Dstore {
                             File file = new File(file_folder, filename);
                             
                             byte[] bytearray = new byte[(int) file.length()];
-
-                            FileInputStream fis = new FileInputStream(file);
-                            BufferedInputStream bis = new BufferedInputStream(fis);
-                            bis.read(bytearray, 0, bytearray.length);
+                            BufferedInputStream fileBIS = new BufferedInputStream(new FileInputStream(file));
+                            fileBIS.read(bytearray);
 
                             OutputStream clientOS = client.getOutputStream();
-                            clientOS.write(bytearray, 0, bytearray.length);
+                            clientOS.write(bytearray);
                             clientOS.flush();
 
                         } else {
@@ -77,11 +70,8 @@ public class Dstore {
     }
 
     public static void sendMessage(Socket socket, String message) throws IOException {
-        BufferedWriter out = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
-        out.write(message);
-        out.newLine();
-        out.flush();
-
+        PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
+        out.println(message);
         DstoreLogger.getInstance().messageSent(socket, message);
     }
 

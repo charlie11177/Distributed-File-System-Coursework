@@ -14,7 +14,7 @@ public class TESTClient {
 
             FileInputStream fis = new FileInputStream(myFile);
             BufferedInputStream bis = new BufferedInputStream(fis);
-            bis.read(mybytearray, 0, mybytearray.length);
+            bis.read(mybytearray);
 
             out.write("STORE FILE.txt " + myFile.length());
             out.newLine();
@@ -24,7 +24,7 @@ public class TESTClient {
             System.out.println("Response: " + response);
             
             OutputStream os = socket.getOutputStream();
-            os.write(mybytearray, 0, mybytearray.length);
+            os.write(mybytearray);
             os.flush();
 
             socket.close();
