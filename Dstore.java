@@ -1,16 +1,23 @@
 import java.io.*;
 import java.net.*;
-import java.util.Date;
-
-import java.text.SimpleDateFormat;
+import java.util.List;
 
 public class Dstore {
-    static int port;
-    static int cport;
-    static int timeout;
-    static File file_folder;
+    private static int port;
+    private static int cport;
+    private static int timeout;
+    private static File file_folder;
+
+    public int socketPort;
+    public int serverPort;
+    
+    public Dstore(int serverPort, int socketPort){
+        this.serverPort = serverPort;
+        this.socketPort = socketPort;
+    }
+    
     public static void main(String[] args) throws IOException{
-        DstoreLogger.init(Logger.LoggingType.ON_FILE_AND_TERMINAL, port);
+        DstoreLogger.init(Logger.LoggingType.ON_TERMINAL_ONLY, port);
         
         args = Parser.parse(args, 4);
         
@@ -24,10 +31,12 @@ public class Dstore {
             for(;;){
                 try {
                     Socket controller = new Socket("localhost", cport);
+                    sendMessage(controller, "JOIN " + port);
                     Socket client = dstoreSS.accept();
     
                     while(true){
                         String line = receiveMessage(client);
+                        if(line == null) continue;
                         String[] parsedLine = Parser.parse(line);
                         String command = parsedLine[0];
                         if(command.equals("STORE")){
@@ -50,18 +59,23 @@ public class Dstore {
                             byte[] bytearray = new byte[(int) file.length()];
                             BufferedInputStream fileBIS = new BufferedInputStream(new FileInputStream(file));
                             fileBIS.read(bytearray);
+                            fileBIS.close();
 
                             OutputStream clientOS = client.getOutputStream();
                             clientOS.write(bytearray);
                             clientOS.flush();
 
+                        } else if (command.equals("REMOVE")){
+                            String filename = parsedLine[1];
+                            File file = new File(file_folder, filename);
+                            file.delete();
+                            sendMessage(controller, "REMOVE_ACK " + filename);
                         } else {
-                            System.out.println("Received command: " + command);
+                            System.out.println("Malformed message received: '" + line + "'");
                         }
                     }
-
                 } catch (Exception e) {
-                    System.out.println("Waiting on another client...");
+                    e.printStackTrace();
                 }
             }
         } catch (Exception e) {
@@ -69,7 +83,7 @@ public class Dstore {
         }
     }
 
-    public static void sendMessage(Socket socket, String message) throws IOException {
+    private static void sendMessage(Socket socket, String message) throws IOException {
         PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
         out.println(message);
         DstoreLogger.getInstance().messageSent(socket, message);
