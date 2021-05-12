@@ -1,24 +1,16 @@
 import java.io.*;
 import java.net.*;
-import java.util.List;
 
 public class Dstore {
-    private static int port;
-    private static int cport;
-    private static int timeout;
-    private static File file_folder;
+    public static int port;
+    public static int cport;
+    public static int timeout;
+    public static File file_folder;
 
-    public int socketPort;
-    public int serverPort;
-    
-    public Dstore(int serverPort, int socketPort){
-        this.serverPort = serverPort;
-        this.socketPort = socketPort;
-    }
-    
+
     public static void main(String[] args) throws IOException{
         DstoreLogger.init(Logger.LoggingType.ON_TERMINAL_ONLY, port);
-        
+            
         args = Parser.parse(args, 4);
         
         port = Integer.parseInt(args[0]);
@@ -26,63 +18,24 @@ public class Dstore {
         timeout = Integer.parseInt(args[2]);
         file_folder = new File(args[3]);
 
-        try {
-            ServerSocket dstoreSS = new ServerSocket(port);
-            for(;;){
-                try {
-                    Socket controller = new Socket("localhost", cport);
-                    sendMessage(controller, "JOIN " + port);
-                    Socket client = dstoreSS.accept();
-    
-                    while(true){
-                        String line = receiveMessage(client);
-                        if(line == null) continue;
-                        String[] parsedLine = Parser.parse(line);
-                        String command = parsedLine[0];
-                        if(command.equals("STORE")){
-                            String filename = parsedLine[1];
-                            int filesize = Integer.parseInt(parsedLine[2]); 
+        ServerSocket dstoreServer = new ServerSocket(port);
 
-                            File file = new File(file_folder, filename);
-                            OutputStream fileOutput = new FileOutputStream(file);
-                            
-                            sendMessage(client, "ACK");
-                            InputStream clientIS = client.getInputStream();
-                            fileOutput.write(clientIS.readNBytes(filesize));
-                            fileOutput.close();
-
-                            sendMessage(controller, "STORE_ACK " + filename);
-                        } else if (command.equals("LOAD_DATA")){
-                            String filename = parsedLine[1];
-                            File file = new File(file_folder, filename);
-                            
-                            byte[] bytearray = new byte[(int) file.length()];
-                            BufferedInputStream fileBIS = new BufferedInputStream(new FileInputStream(file));
-                            fileBIS.read(bytearray);
-                            fileBIS.close();
-
-                            OutputStream clientOS = client.getOutputStream();
-                            clientOS.write(bytearray);
-                            clientOS.flush();
-
-                        } else if (command.equals("REMOVE")){
-                            String filename = parsedLine[1];
-                            File file = new File(file_folder, filename);
-                            file.delete();
-                            sendMessage(controller, "REMOVE_ACK " + filename);
-                        } else {
-                            System.out.println("Malformed message received: '" + line + "'");
-                        }
-                    }
-                } catch (Exception e) {
-                    e.printStackTrace();
+        while(true){
+            try {
+                Socket controller = new Socket("localhost", cport);
+                sendMessage(controller, "JOIN " + port);
+                while(true){
+                    Socket client = dstoreServer.accept();
+                    ClientListener clientListener = new ClientListener(client, controller);
+                    clientListener.start();
                 }
+            } catch (Exception e) {
+                //TODO: handle exception
             }
-        } catch (Exception e) {
-            System.out.println("Error setting up serversocket: " + e);
         }
     }
 
+    //SOCKET SEND AND RECEIVE
     private static void sendMessage(Socket socket, String message) throws IOException {
         PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
         out.println(message);
@@ -96,5 +49,43 @@ public class Dstore {
             DstoreLogger.getInstance().messageReceived(socket, message);
         }
         return message;
+    }
+
+    static class ClientListener extends Thread {
+        Socket client;
+        Socket controller;
+    
+        public ClientListener(Socket client, Socket controller){
+            this.client = client;
+            this.controller = controller;
+        }
+    
+        @Override
+        public void run() {
+            while(client.isConnected()){
+                try {
+                    String line = receiveMessage(client);
+                    String[] parsedLine = Parser.parse(line);
+                    String command = parsedLine[0];
+                    if(command.equals(Protocol.STORE_TOKEN)){
+                        sendMessage(client, Protocol.ACK_TOKEN);
+                        String filename = parsedLine[1];
+                        int filesize = Integer.parseInt(parsedLine[2]);
+
+                        File file = new File(file_folder, filename);
+                        OutputStream fileOutput = new FileOutputStream(file);
+                        InputStream clientInput = client.getInputStream();
+                        fileOutput.write(clientInput.readNBytes(filesize));
+                        fileOutput.close();
+
+                        sendMessage(controller, Protocol.STORE_ACK_TOKEN + " " + filename);
+                    }
+                    
+                } catch (Exception e) {
+                    //TODO: handle exception
+                }
+            }
+            
+        }
     }
 }
