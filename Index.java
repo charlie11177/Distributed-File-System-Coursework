@@ -1,4 +1,5 @@
 import java.util.ArrayList;
+import java.util.Arrays;
 
 public class Index {
     class FileInfo {
@@ -34,6 +35,16 @@ public class Index {
         index.remove(getFileInfo(name));
     }
 
+    public boolean removeFirstPort(String name){
+        int[] storePorts = getFileInfo(name).storePorts;
+        if(storePorts.length == 1){
+            return false;
+        }else{
+            getFileInfo(name).storePorts = Arrays.copyOfRange(storePorts, 1, storePorts.length);
+            return true;
+        }
+    }
+
     public String getFileList(){
         String file_list = "";
         for(FileInfo fInfo : index){
@@ -60,4 +71,5 @@ public class Index {
     public boolean fileExists(String name){
         return (getFileInfo(name) != null);
     }
+
 }

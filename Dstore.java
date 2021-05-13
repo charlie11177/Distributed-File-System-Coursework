@@ -24,6 +24,8 @@ public class Dstore {
             try {
                 Socket controller = new Socket("localhost", cport);
                 sendMessage(controller, "JOIN " + port);
+                ControllerListener controllerListener = new ControllerListener(controller);
+                controllerListener.start();
                 while(true){
                     Socket client = dstoreServer.accept();
                     ClientListener clientListener = new ClientListener(client, controller);
@@ -85,6 +87,9 @@ public class Dstore {
                             String filename = parsedLine[1];
     
                             File file = new File(file_folder, filename);
+                            if(!file.exists()){
+                                client.close();
+                            }
     
                             BufferedInputStream bis = new BufferedInputStream(new FileInputStream(file));
                             byte[] bytearray = bis.readAllBytes();
@@ -93,13 +98,6 @@ public class Dstore {
                             os.write(bytearray);
                             os.flush();
                             bis.close();
-                        }else if(command.equals(Protocol.REMOVE_TOKEN)){
-                            String filename = parsedLine[1];
-    
-                            File file = new File(file_folder, filename);
-                            if(file.delete()){
-                                sendMessage(controller, Protocol.REMOVE_ACK_TOKEN + " " + filename);
-                            }
                         }
                         
 
@@ -111,5 +109,45 @@ public class Dstore {
             }
             
         }
+    }
+
+    static class ControllerListener extends Thread {
+         Socket controller;
+
+         public ControllerListener(Socket controller){
+             this.controller = controller;
+         }
+
+         @Override
+         public void run(){
+             while(controller.isConnected()){
+                 try {
+                    String line = receiveMessage(controller);
+                    if(line != null){
+                        String[] parsedLine = Parser.parse(line);
+                        String command = parsedLine[0];
+                        if(command.equals(Protocol.REMOVE_TOKEN)){
+                            String filename = parsedLine[1];
+    
+                            File file = new File(file_folder, filename);
+                            if(file.delete()){
+                                sendMessage(controller, Protocol.REMOVE_ACK_TOKEN + " " + filename);
+                            }else{
+                                sendMessage(controller, Protocol.ERROR_FILE_DOES_NOT_EXIST_TOKEN + " " + filename);
+                            }
+                        }else if(command.equals(Protocol.LIST_TOKEN)){
+                            String file_list = "";
+                            for(File file : file_folder.listFiles()){
+                                file_list += file.getName() + " ";
+                            }
+                            file_list = file_list.trim();
+                            sendMessage(controller, Protocol.LIST_TOKEN + " " + file_list);
+                        }
+                    }
+                } catch (Exception e) {
+                     //TODO: handle exception
+                 }
+             }
+         }
     }
 }

@@ -1,6 +1,7 @@
 import java.io.*;
 import java.net.*;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
@@ -46,6 +47,17 @@ public class Controller {
                 DstoreListener dstoreListener = new DstoreListener(client, port);
                 dstores.add(dstoreListener);
                 dstoreListener.start();
+
+                /*for(DstoreListener listener : dstores){
+                    Socket dstore = listener.dstore;
+                    System.out.println("DSTORES: " + dstores.size());
+                    line = sendMessageAndAwaitReply(dstore, Protocol.LIST_TOKEN);
+                    parsedLine = Parser.parse(line);
+                    command = parsedLine[0];
+                    String[] dstorefile_list = Arrays.copyOfRange(parsedLine, 1, parsedLine.length);
+                
+                }*/
+
             }else{
                 ClientListener clientListener = new ClientListener(client, line);
                 clientListener.start();
@@ -56,9 +68,15 @@ public class Controller {
 
     //SOCKET SEND AND RECEIVE
     public static void sendMessage(Socket socket, String message) throws IOException {
-        PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
-        out.println(message);
-        ControllerLogger.getInstance().messageSent(socket, message);
+        try {
+            PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
+            out.println(message);
+            ControllerLogger.getInstance().messageSent(socket, message);
+            
+        } catch (Exception e) {
+            System.out.println("ERROR SENDING MESSAGE:\n");
+            e.printStackTrace();
+        }
     }
 
     public static String receiveMessage(Socket socket) throws IOException{
@@ -88,6 +106,7 @@ public class Controller {
     }
 
 
+
     static class DstoreListener extends Thread {
         public Socket dstore;
         public int port;
@@ -99,6 +118,10 @@ public class Controller {
 
         public void send(String message) throws IOException{
             sendMessage(dstore, message);
+        }
+
+        public void remove(){
+            dstores.remove(this);
         }
         
         @Override
@@ -117,6 +140,8 @@ public class Controller {
                             String filename = parsedLine[1];
                             ongoingRemoves.get(filename).ack(port);
                         }
+                    }else{
+                        break;
                     }
 
                 } catch (Exception e) {
@@ -124,6 +149,7 @@ public class Controller {
                     //TODO: handle exception
                 }
             }
+            System.out.println("Dstore disconnected!");
         }
     }
     
@@ -196,28 +222,37 @@ public class Controller {
                                 index.changeStatus(filename, "remove in progress");
                                 int[] ports = index.getFileInfo(filename).storePorts;
                                 for(int port : ports){
-                                    getDstoreListener(port).send(Protocol.REMOVE_TOKEN + " " + filename);
+                                    sendMessage(getDstoreListener(port).dstore, Protocol.REMOVE_TOKEN + " " + filename);
                                 }
                                 GetRemoveAcks removeAck = new GetRemoveAcks(ports);
                                 ongoingRemoves.put(filename, removeAck);
+
                                 Future<Boolean> future = executor.submit(removeAck);
                                 if(future.get(timeout, TimeUnit.MILLISECONDS)){
-                                    System.out.println("REMOVE SUCCESS");
                                     sendMessage(client, Protocol.REMOVE_COMPLETE_TOKEN);
                                     index.remove(filename);
                                     ongoingRemoves.remove(filename);
                                 }
+                            }
+                        }else if(command.equals(Protocol.RELOAD_TOKEN)){
+                            String filename = parsedLine[1];
+                            if(index.removeFirstPort(filename)){
+                                int port = index.getFileInfo(filename).storePorts[0];
+                                int filesize = index.getFileInfo(filename).filesize;
+                                sendMessage(client, Protocol.LOAD_FROM_TOKEN + " " + port + " " + filesize);
+                            }else{
+                                sendMessage(client, Protocol.ERROR_LOAD_TOKEN);
                             }
                         }
                         line = receiveMessage(client);
 
                     }
                 } catch (Exception e) {
-                    e.printStackTrace();
+                    //If future times out
                     break;
                 }
 
-            } 
+            }
         }
     }
     
