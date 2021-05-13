@@ -3,11 +3,15 @@ import java.util.ArrayList;
 public class Index {
     class FileInfo {
         public String name;
+        public int filesize;
         public String status;
+        public int[] storePorts;
 
-        public FileInfo(String name, String status){
+        public FileInfo(String name, int filesize, String status, int[] storePorts){
             this.name = name;
+            this.filesize = filesize;
             this.status = status;
+            this.storePorts = storePorts;
         }
     }
 
@@ -17,13 +21,17 @@ public class Index {
         index = new ArrayList<FileInfo>();
     }
 
-    public boolean add(String name, String status){
+    public boolean add(String name, int filesize, String status, int[] storePorts){
         if(getFileInfo(name) == null){
-            index.add(new FileInfo(name, status));
+            index.add(new FileInfo(name, filesize, status, storePorts));
             return true;
         }else{
             return false;
         }
+    }
+
+    public void remove(String name){
+        index.remove(getFileInfo(name));
     }
 
     public String getFileList(){
@@ -42,7 +50,7 @@ public class Index {
 
     public FileInfo getFileInfo(String name){
         for(FileInfo fileInfo : index){
-            if(fileInfo.name == name){
+            if(fileInfo.name.equals(name)){
                 return fileInfo;
             }
         }

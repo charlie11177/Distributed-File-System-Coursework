@@ -16,6 +16,7 @@ public class Controller {
 
     public static ArrayList<DstoreListener> dstores;
     public static HashMap<String, GetStorageAcks> ongoingUploads;
+    public static HashMap<String, GetRemoveAcks> ongoingRemoves;
     public static Index index;
 
 
@@ -23,6 +24,7 @@ public class Controller {
         ControllerLogger.init(Logger.LoggingType.ON_TERMINAL_ONLY);
         dstores = new ArrayList<DstoreListener>();
         ongoingUploads = new HashMap<String, GetStorageAcks>();
+        ongoingRemoves = new HashMap<String, GetRemoveAcks>();
         index = new Index();
         
         args = Parser.parse(args, 4);
@@ -76,14 +78,27 @@ public class Controller {
         return reply;
     }
 
+    public static DstoreListener getDstoreListener(int port){
+        for(DstoreListener dstoreListener : dstores){
+            if(dstoreListener.port == port){
+                return dstoreListener;
+            }
+        }
+        return null;
+    }
+
 
     static class DstoreListener extends Thread {
-        Socket dstore;
+        public Socket dstore;
         public int port;
     
         public DstoreListener(Socket dstore, int port){
             this.dstore = dstore;
             this.port = port;
+        }
+
+        public void send(String message) throws IOException{
+            sendMessage(dstore, message);
         }
         
         @Override
@@ -92,14 +107,20 @@ public class Controller {
             while(dstore.isConnected()){
                 try {
                     String line = receiveMessage(dstore);
-                    String[] parsedLine = Parser.parse(line);
-                    String command = parsedLine[0];
-                    if(command.equals(Protocol.STORE_ACK_TOKEN)){
-                        String filename = parsedLine[1];
-                        ongoingUploads.get(filename).ack(port);
+                    if(line != null){
+                        String[] parsedLine = Parser.parse(line);
+                        String command = parsedLine[0];
+                        if(command.equals(Protocol.STORE_ACK_TOKEN)){
+                            String filename = parsedLine[1];
+                            ongoingUploads.get(filename).ack(port);
+                        }else if(command.equals(Protocol.REMOVE_ACK_TOKEN)){
+                            String filename = parsedLine[1];
+                            ongoingRemoves.get(filename).ack(port);
+                        }
                     }
 
                 } catch (Exception e) {
+                    e.printStackTrace();
                     //TODO: handle exception
                 }
             }
@@ -120,47 +141,83 @@ public class Controller {
             ExecutorService executor = Executors.newSingleThreadExecutor();
             while(client.isConnected()){
                 try {
-                    String[] parsedLine = Parser.parse(line);
-                    String command = parsedLine[0];
-                    if(command.equals(Protocol.STORE_TOKEN)){
-                        String filename = parsedLine[1];
-                        if(dstores.size() < R){
-                            sendMessage(client, Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN);
-                        }else if(index.fileExists(filename)){
-                            sendMessage(client, Protocol.ERROR_FILE_ALREADY_EXISTS_TOKEN);
-                        }else{
-                            index.add(filename, "store in progress");
-                            int ports[] = new int[R];
-                            String portsList = ""; 
-                            for(int i = 0; i < R; i++){
-                                ports[i] = dstores.get(i).port;
+                    if(line != null){
+                        String[] parsedLine = Parser.parse(line);
+                        String command = parsedLine[0];
+                        if(command.equals(Protocol.STORE_TOKEN)){
+                            String filename = parsedLine[1];
+                            int filesize = Integer.parseInt(parsedLine[2]);
+                            if(dstores.size() < R){
+                                sendMessage(client, Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN);
+                            }else if(index.fileExists(filename)){
+                                sendMessage(client, Protocol.ERROR_FILE_ALREADY_EXISTS_TOKEN);
+                            }else{
+                                int ports[] = new int[R];
+                                String portsList = ""; 
+                                for(int i = 0; i < R; i++){
+                                    ports[i] = dstores.get(i).port;
+                                }
+                                for(int port : ports){
+                                    portsList += port + " ";
+                                }
+                                portsList = portsList.trim();
+                                
+                                index.add(filename, filesize, "store in progress", ports);
+                                sendMessage(client, Protocol.STORE_TO_TOKEN + " " + portsList);
+                                GetStorageAcks storageAck = new GetStorageAcks(ports);
+                                ongoingUploads.put(filename, storageAck);
+                                Future<Boolean> future = executor.submit(storageAck);
+                                if(future.get(timeout, TimeUnit.MILLISECONDS)){
+                                    sendMessage(client, Protocol.STORE_COMPLETE_TOKEN);
+                                    index.changeStatus(filename, "store complete");
+                                    ongoingUploads.remove(filename);
+                                }
                             }
-                            for(int port : ports){
-                                portsList += port + " ";
+                        }else if(command.equals(Protocol.LIST_TOKEN)){
+                            sendMessage(client, Protocol.LIST_TOKEN + " " + index.getFileList());
+                        }else if(command.equals(Protocol.LOAD_TOKEN)){
+                            String filename = parsedLine[1];
+                            if(dstores.size() < R){
+                                sendMessage(client, Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN);
+                            }else if(!index.fileExists(filename)){
+                                sendMessage(client, Protocol.ERROR_FILE_DOES_NOT_EXIST_TOKEN);
+                            }else {
+                                int port = index.getFileInfo(filename).storePorts[0];
+                                int filesize = index.getFileInfo(filename).filesize;
+                                sendMessage(client, Protocol.LOAD_FROM_TOKEN + " " + port + " " + filesize);
                             }
-                            portsList = portsList.trim();
-    
-                            sendMessage(client, Protocol.STORE_TO_TOKEN + " " + portsList);
-                            GetStorageAcks storageAck = new GetStorageAcks(ports);
-                            ongoingUploads.put(filename, storageAck);
-                            Future<Boolean> future = executor.submit(storageAck);
-                            if(future.get(timeout, TimeUnit.MILLISECONDS)){
-                                sendMessage(client, Protocol.STORE_COMPLETE_TOKEN);
-                                index.changeStatus(filename, "store complete");
+                        }else if(command.equals(Protocol.REMOVE_TOKEN)){
+                            String filename = parsedLine[1];
+                            if(dstores.size() < R){
+                                sendMessage(client, Protocol.ERROR_NOT_ENOUGH_DSTORES_TOKEN);
+                            }else if(!index.fileExists(filename)){
+                                sendMessage(client, Protocol.ERROR_FILE_DOES_NOT_EXIST_TOKEN);
+                            }else{
+                                index.changeStatus(filename, "remove in progress");
+                                int[] ports = index.getFileInfo(filename).storePorts;
+                                for(int port : ports){
+                                    getDstoreListener(port).send(Protocol.REMOVE_TOKEN + " " + filename);
+                                }
+                                GetRemoveAcks removeAck = new GetRemoveAcks(ports);
+                                ongoingRemoves.put(filename, removeAck);
+                                Future<Boolean> future = executor.submit(removeAck);
+                                if(future.get(timeout, TimeUnit.MILLISECONDS)){
+                                    System.out.println("REMOVE SUCCESS");
+                                    sendMessage(client, Protocol.REMOVE_COMPLETE_TOKEN);
+                                    index.remove(filename);
+                                    ongoingRemoves.remove(filename);
+                                }
                             }
                         }
-                    }else if(command.equals(Protocol.LIST_TOKEN)){
-                        sendMessage(client, Protocol.LIST_TOKEN + " " + index.getFileList());
+                        line = receiveMessage(client);
+
                     }
-                    line = receiveMessage(client);
                 } catch (Exception e) {
+                    e.printStackTrace();
                     break;
                 }
 
-            }
-
-            // TODO Auto-generated method stub
-            
+            } 
         }
     }
     
@@ -168,6 +225,31 @@ public class Controller {
         HashMap<Integer, Boolean> acks;
 
         public GetStorageAcks(int[] ports){
+            acks = new HashMap<Integer, Boolean>();
+            for(int port : ports){
+                acks.put(port, false);
+            }
+        }
+
+        public void ack(int port){
+            acks.put(port, true);
+        }
+    
+        @Override
+        public Boolean call() throws Exception {
+            while(true){
+                if(!acks.values().contains(false)){
+                    return true;
+                }
+            }
+        }
+        
+    }
+
+    static class GetRemoveAcks implements Callable<Boolean> {
+        HashMap<Integer, Boolean> acks;
+
+        public GetRemoveAcks(int[] ports){
             acks = new HashMap<Integer, Boolean>();
             for(int port : ports){
                 acks.put(port, false);

@@ -30,6 +30,7 @@ public class Dstore {
                     clientListener.start();
                 }
             } catch (Exception e) {
+                e.printStackTrace();
                 //TODO: handle exception
             }
         }
@@ -65,23 +66,46 @@ public class Dstore {
             while(client.isConnected()){
                 try {
                     String line = receiveMessage(client);
-                    String[] parsedLine = Parser.parse(line);
-                    String command = parsedLine[0];
-                    if(command.equals(Protocol.STORE_TOKEN)){
-                        sendMessage(client, Protocol.ACK_TOKEN);
-                        String filename = parsedLine[1];
-                        int filesize = Integer.parseInt(parsedLine[2]);
+                    if(line != null){
+                        String[] parsedLine = Parser.parse(line);
+                        String command = parsedLine[0];
+                        if(command.equals(Protocol.STORE_TOKEN)){
+                            sendMessage(client, Protocol.ACK_TOKEN);
+                            String filename = parsedLine[1];
+                            int filesize = Integer.parseInt(parsedLine[2]);
+    
+                            File file = new File(file_folder, filename);
+                            OutputStream fileOutput = new FileOutputStream(file);
+                            InputStream clientInput = client.getInputStream();
+                            fileOutput.write(clientInput.readNBytes(filesize));
+                            fileOutput.close();
+    
+                            sendMessage(controller, Protocol.STORE_ACK_TOKEN + " " + filename);
+                        }else if(command.equals(Protocol.LOAD_DATA_TOKEN)){
+                            String filename = parsedLine[1];
+    
+                            File file = new File(file_folder, filename);
+    
+                            BufferedInputStream bis = new BufferedInputStream(new FileInputStream(file));
+                            byte[] bytearray = bis.readAllBytes();
+    
+                            OutputStream os = client.getOutputStream();
+                            os.write(bytearray);
+                            os.flush();
+                            bis.close();
+                        }else if(command.equals(Protocol.REMOVE_TOKEN)){
+                            String filename = parsedLine[1];
+    
+                            File file = new File(file_folder, filename);
+                            if(file.delete()){
+                                sendMessage(controller, Protocol.REMOVE_ACK_TOKEN + " " + filename);
+                            }
+                        }
+                        
 
-                        File file = new File(file_folder, filename);
-                        OutputStream fileOutput = new FileOutputStream(file);
-                        InputStream clientInput = client.getInputStream();
-                        fileOutput.write(clientInput.readNBytes(filesize));
-                        fileOutput.close();
-
-                        sendMessage(controller, Protocol.STORE_ACK_TOKEN + " " + filename);
                     }
-                    
                 } catch (Exception e) {
+                    e.printStackTrace();
                     //TODO: handle exception
                 }
             }
